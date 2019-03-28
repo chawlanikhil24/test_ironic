@@ -48,6 +48,10 @@ DELETE	/v1/nodes/{node_identity}	Delete Node`,
 		host := cmd.Flag("host").Value.String()
 		port := cmd.Flag("port").Value.String()
 		request := cmd.Flag("request").Value.String()
+		repeat, err := strconv.Atoi(cmd.Flag("repeat").Value.String())
+		if err != nil {
+			fmt.Println("Error in coverting String to Int in nodeDetailCmd: ", "repeat", err)
+		}
 		threads, err := strconv.Atoi(cmd.Flag("threads").Value.String())
 		if err != nil {
 			fmt.Println("Error in coverting String to Int in nodeDetailCmd: ", "threads", err)
@@ -58,12 +62,17 @@ DELETE	/v1/nodes/{node_identity}	Delete Node`,
 		}
 
 		var ironic_server string = "http://" + host + ":" + port + api
-
-		fmt.Println(request, threads, timer)
-		fmt.Println(ironic_server)
+		// channel := make(chan RecordRequestData)
 		if request == "GET" {
-			for i := 1; i <= threads; i++ {
-				go getRequest(ironic_server)
+			for iterations := 1; iterations <= repeat; iterations++ {
+				for i := 1; i <= threads; i++ {
+					// go getRequest(ironic_server, channel)
+					// fmt.Println("CHANNEL: ", <-channel)
+					go getRequest(ironic_server, iterations, i)
+					// close(channel)
+				}
+				time.Sleep(timer)
+				fmt.Println("SleepOver")
 			}
 		} else {
 			for i := 1; i <= threads; i++ {
@@ -84,8 +93,14 @@ DELETE	/v1/nodes/{node_identity}	Delete Node`,
 				go postRequest(ironic_server, body)
 			}
 		}
-		time.Sleep(timer)
+		// time.Sleep(timer)
 	},
+}
+
+type RecordRequestData struct {
+	Iteration int
+	Thread    int
+	latency   float64
 }
 
 type IPMICredentials struct {
@@ -101,19 +116,39 @@ type jsonBodyForPostRequest struct {
 	DriverInfo      IPMICredentials
 }
 
-func getRequest(URL string) (float64, error) {
+func getRequest(URL string, iteration_count int, count int) {
 	t1 := time.Now()
-	res, err := http.Get(URL)
+	_, err := http.Get(URL)
 	t2 := time.Now()
 	if err != nil {
 		fmt.Println("looks like an error has occr", err)
-		return 0.0000000000, err
+		// return 0.0000000000, err
 	} else {
 		time_diff := t2.Sub(t1)
-		fmt.Println(res.StatusCode, time_diff.Seconds())
-		return time_diff.Seconds(), nil
+		fmt.Println("Request Count: ", count, " ,Iteration: ", iteration_count, " ,Latency: ", time_diff.Seconds())
+		// return time_diff.Seconds(), nil
 	}
 }
+
+// func getRequest(URL string, channel chan<- string) (float64, error) {
+// 	t1 := time.Now()
+// 	res, err := http.Get(URL)
+// 	t2 := time.Now()
+// 	if err != nil {
+// 		fmt.Println("looks like an error has occr", err)
+// 		return 0.0000000000, err
+// 	} else {
+// 		time_diff := t2.Sub(t1)
+// 		response_body, err := ioutil.ReadAll(res.Body)
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 		channel <- string(response_body)
+// 		fmt.Println(time_diff.Seconds())
+// 		res.Body.Close()
+// 		return time_diff.Seconds(), nil
+// 	}
+// }
 
 func postRequest(URL string, body []byte) (float64, error) {
 
@@ -133,29 +168,20 @@ func postRequest(URL string, body []byte) (float64, error) {
 func init() {
 	runBenchmarkCmd.AddCommand(nodeDetailCmd)
 
+	var request_type string
+	var API string
+	var repeat int = 1
 	var port int = 6385
 	var n_threads int = 10
 	var timer int = 5
-	var request_type string
-	var API string
 	nodeDetailCmd.Flags().String("host", "localhost", "Used to specify the ironic server address")
 	nodeDetailCmd.Flags().StringVarP(&request_type, "request", "r", "", "Used to specify the request type that should hit ironic server API(GET, POST, PATCH, DELETE etc.)")
 	nodeDetailCmd.Flags().StringVarP(&API, "api", "a", "", "Used to specify the API URL")
 	nodeDetailCmd.Flags().IntVar(&port, "port", port, "Used to specify the ironic port address")
 	nodeDetailCmd.Flags().IntVar(&n_threads, "threads", n_threads, "Used to specify the number of worker threads to be created at the runtime")
 	nodeDetailCmd.Flags().IntVar(&timer, "timer", timer, "Used to specify the number of seconds for which the program should wait to execute worker threads")
+	nodeDetailCmd.Flags().IntVar(&repeat, "repeat", repeat, "Used to specify the number of iterations for which the API hits should happen")
 
 	nodeDetailCmd.MarkFlagRequired("request")
 	nodeDetailCmd.MarkFlagRequired("api")
 }
-
-// body = {
-// 	"name": "test_node_dynamic",
-// 	"driver": "ipmi",
-// 	"driver_info": {
-// 			"ipmi_username": "ADMIN",
-// 			"ipmi_password": "password"
-// 	},
-// 	"power_interface": "ipmitool",
-// 	"resource_class": "bm-large"
-// }
