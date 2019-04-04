@@ -15,10 +15,11 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/csv"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -38,131 +39,72 @@ var nodeDetailCmd = &cobra.Command{
 
 GET	/v1/nodes			List Nodes
 GET	/v1/nodes/detail		List Nodes Detailed
-GET	/v1/nodes/{node_identity}	Show Node Detailed
-POST	/v1/nodes			Create Node
-PATCH	/v1/nodes/{node_identity}	Update Node
-DELETE	/v1/nodes/{node_identity}	Delete Node`,
+GET	/v1/nodes/node_identity	Show Node Detailed
+POST	/v1/nodes			Create Node --NOT SUPPORTED FOR NOW--
+PATCH	/v1/nodes/{node_identity}	Update Node --NOT SUPPORTED FOR NOW--
+DELETE	/v1/nodes/{node_identity}	Delete Node --NOT SUPPORTED FOR NOW--`,
 
 	Run: func(cmd *cobra.Command, args []string) {
 		api := cmd.Flag("api").Value.String()
 		host := cmd.Flag("host").Value.String()
 		port := cmd.Flag("port").Value.String()
 		request := cmd.Flag("request").Value.String()
+		csv := cmd.Flag("csv").Value.String()
 		repeat, err := strconv.Atoi(cmd.Flag("repeat").Value.String())
-		if err != nil {
-			fmt.Println("Error in coverting String to Int in nodeDetailCmd: ", "repeat", err)
-		}
+		checkError("Error in coverting String to Int in nodeDetailCmd for repeat variable", err)
 		threads, err := strconv.Atoi(cmd.Flag("threads").Value.String())
-		if err != nil {
-			fmt.Println("Error in coverting String to Int in nodeDetailCmd: ", "threads", err)
-		}
+		checkError("Error in coverting String to Int in nodeDetailCmd for threads variable", err)
 		timer, err := time.ParseDuration((cmd.Flag("timer").Value.String()) + "s") // "s" represents 'seconds' unit of time, by appending "s" to the timer string, will create a time duration object which represents "timer" seconds
-		if err != nil {
-			fmt.Println("Error in coverting String to time Duration in nodeDetailCmd: ", "timer", err)
-		}
+		checkError("Error in coverting String to time Duration in nodeDetailCmd for timer", err)
 
 		var ironic_server string = "http://" + host + ":" + port + api
-		// channel := make(chan RecordRequestData)
 		if request == "GET" {
 			for iterations := 1; iterations <= repeat; iterations++ {
 				for i := 1; i <= threads; i++ {
-					// go getRequest(ironic_server, channel)
-					// fmt.Println("CHANNEL: ", <-channel)
 					go getRequest(ironic_server, iterations, i)
-					// close(channel)
 				}
 				time.Sleep(timer)
 				fmt.Println("SleepOver")
 			}
 		} else {
-			for i := 1; i <= threads; i++ {
-				jsonBody := jsonBodyForPostRequest{
-					Name:            "test_node_dynamic",
-					Driver:          "ipmi",
-					Power_Interface: "ipmitool",
-					Resource_Class:  "bm-large",
-					DriverInfo: IPMICredentials{
-						IPMI_Username: "ADMIN",
-						IPMI_Password: "password",
-					},
-				}
-				body, err := json.Marshal(jsonBody)
-				if err != nil {
-					panic(err)
-				}
-				go postRequest(ironic_server, body)
+			log.Fatal("We are not supporting other requests than GET requests")
+			return
+		}
+		if csv == "true" {
+			if len(RequestMetricsArray) > 0 {
+				writeMetricstoCSV()
+			} else {
+				log.Fatal("No Data Collected in RequestMetricsArray")
+				return
 			}
 		}
-		// time.Sleep(timer)
 	},
 }
 
 type RecordRequestData struct {
 	Iteration int
 	Thread    int
-	latency   float64
+	Latency   float64
 }
 
-type IPMICredentials struct {
-	IPMI_Username string `json:"ipmi_username"`
-	IPMI_Password string `json:"ipmi_password"`
-}
+var RequestMetricsArray []RecordRequestData
 
-type jsonBodyForPostRequest struct {
-	Name            string `json:"name"`
-	Driver          string `json:"driver"`
-	Power_Interface string `json:"power_interface"`
-	Resource_Class  string `json:"resource_class"`
-	DriverInfo      IPMICredentials
-}
-
-func getRequest(URL string, iteration_count int, count int) {
-	t1 := time.Now()
-	_, err := http.Get(URL)
-	t2 := time.Now()
+func checkError(message string, err error) {
 	if err != nil {
-		fmt.Println("looks like an error has occr", err)
-		// return 0.0000000000, err
-	} else {
-		time_diff := t2.Sub(t1)
-		fmt.Println("Request Count: ", count, " ,Iteration: ", iteration_count, " ,Latency: ", time_diff.Seconds())
-		// return time_diff.Seconds(), nil
+		log.Fatal(message, err)
 	}
 }
 
-// func getRequest(URL string, channel chan<- string) (float64, error) {
-// 	t1 := time.Now()
-// 	res, err := http.Get(URL)
-// 	t2 := time.Now()
-// 	if err != nil {
-// 		fmt.Println("looks like an error has occr", err)
-// 		return 0.0000000000, err
-// 	} else {
-// 		time_diff := t2.Sub(t1)
-// 		response_body, err := ioutil.ReadAll(res.Body)
-// 		if err != nil {
-// 			panic(err)
-// 		}
-// 		channel <- string(response_body)
-// 		fmt.Println(time_diff.Seconds())
-// 		res.Body.Close()
-// 		return time_diff.Seconds(), nil
-// 	}
-// }
-
-func postRequest(URL string, body []byte) (float64, error) {
-
-	t1 := time.Now()
-	res, err := http.NewRequest("POST", URL, bytes.NewBuffer(body))
-	t2 := time.Now()
-	if err != nil {
-		fmt.Println("looks like an error has occur", err)
-		return 0.0000000000, err
+func convertMetricstoString() [][]string {
+	var arr [][]string
+	for _, item := range RequestMetricsArray {
+		Iteration := strconv.Itoa(item.Iteration)
+		Thread := strconv.Itoa(item.Thread)
+		Latency := fmt.Sprintf("%f", item.Latency)
+		data := []string{Iteration, Thread, Latency}
+		arr = append(arr, data)
 	}
-	fmt.Println(res.Response)
-	time_diff := t2.Sub(t1)
-	fmt.Println(time_diff.Seconds(), time_diff.Nanoseconds())
-	return time_diff.Seconds(), nil
+	return arr
 }
 
 func init() {
@@ -174,6 +116,8 @@ func init() {
 	var port int = 6385
 	var n_threads int = 10
 	var timer int = 5
+	var csv bool = false
+
 	nodeDetailCmd.Flags().String("host", "localhost", "Used to specify the ironic server address")
 	nodeDetailCmd.Flags().StringVarP(&request_type, "request", "r", "", "Used to specify the request type that should hit ironic server API(GET, POST, PATCH, DELETE etc.)")
 	nodeDetailCmd.Flags().StringVarP(&API, "api", "a", "", "Used to specify the API URL")
@@ -181,7 +125,38 @@ func init() {
 	nodeDetailCmd.Flags().IntVar(&n_threads, "threads", n_threads, "Used to specify the number of worker threads to be created at the runtime")
 	nodeDetailCmd.Flags().IntVar(&timer, "timer", timer, "Used to specify the number of seconds for which the program should wait to execute worker threads")
 	nodeDetailCmd.Flags().IntVar(&repeat, "repeat", repeat, "Used to specify the number of iterations for which the API hits should happen")
+	nodeDetailCmd.Flags().BoolVar(&csv, "csv", csv, "Used to specify the output should be in CSV file")
 
 	nodeDetailCmd.MarkFlagRequired("request")
 	nodeDetailCmd.MarkFlagRequired("api")
+}
+
+func getRequest(URL string, iteration_count int, count int) {
+	t1 := time.Now()
+	_, err := http.Get(URL)
+	t2 := time.Now()
+	checkError("looks like an error has occur", err)
+	time_diff := t2.Sub(t1)
+	fmt.Println("Request Count: ", count, " ,Iteration: ", iteration_count, " ,Latency: ", time_diff.Seconds())
+	metrics := RecordRequestData{}
+	metrics.Iteration = iteration_count
+	metrics.Thread = count
+	metrics.Latency = time_diff.Seconds()
+	RequestMetricsArray = append(RequestMetricsArray, metrics)
+}
+
+func writeMetricstoCSV() {
+	convertedMetrics := convertMetricstoString()
+	file, err := os.Create("results.csv")
+	checkError("Err in creating results.csv", err)
+	defer file.Close() //At the end of the execution of this function close this File
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	headers := []string{"Iteration", "Thread", "Latency(in Seconds)"}
+	err = writer.Write(headers)
+	checkError("Error in writing metrics of CSV", err)
+	for _, metrics := range convertedMetrics {
+		err = writer.Write(metrics)
+		checkError("Error in writing metrics of CSV", err)
+	}
 }
